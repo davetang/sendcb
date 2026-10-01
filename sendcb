@@ -32,15 +32,6 @@ readonly osc52_limit=1000000
 
 warn() { echo "sendcb: $*" >&2; }
 
-# read FILEs (or stdin), optionally dropping trailing newlines
-input() {
-  if $strip; then
-    printf '%s' "$(cat -- "$@")"
-  else
-    cat -- "$@"
-  fi
-}
-
 # encode stdin as an OSC 52 "set clipboard" sequence
 osc52() {
   local data chunk
@@ -114,12 +105,22 @@ if $verbose; then
   warn "using $method$detail"
 fi
 
+# read everything before copying, so a file that can't be read leaves the
+# clipboard alone instead of emptying it (cat has already said why)
+if $strip; then
+  data=$(cat -- "$@") || exit 1
+else
+  # the x stops $(...) from removing trailing newlines
+  data=$(cat -- "$@" && printf x) || exit 1
+  data=${data%x}
+fi
+
 case $method in
-  osc52)   input "$@" | osc52 > /dev/tty ;;
-  pbcopy)  input "$@" | pbcopy ;;
-  wl-copy) input "$@" | wl-copy ;;
+  osc52)   printf '%s' "$data" | osc52 > /dev/tty ;;
+  pbcopy)  printf '%s' "$data" | pbcopy ;;
+  wl-copy) printf '%s' "$data" | wl-copy ;;
   # xclip and xsel stay in the background to serve the clipboard; redirect
   # stdout so they don't hold it open and hang $(...) or ssh
-  xclip)   input "$@" | xclip -selection clipboard > /dev/null ;;
-  xsel)    input "$@" | xsel --clipboard --input > /dev/null ;;
+  xclip)   printf '%s' "$data" | xclip -selection clipboard > /dev/null ;;
+  xsel)    printf '%s' "$data" | xsel --clipboard --input > /dev/null ;;
 esac
