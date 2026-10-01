@@ -100,8 +100,12 @@ fi
 
 if $verbose; then
   detail=
-  [[ $method == osc52 && -n ${STY:-} ]] && detail=' (wrapped for GNU screen)'
-  [[ $method == osc52 && -n ${TMUX:-} ]] && detail=' (via tmux)'
+  # same order as osc52(): $STY wins when both are set
+  if [[ $method == osc52 && -n ${STY:-} ]]; then
+    detail=' (wrapped for GNU screen)'
+  elif [[ $method == osc52 && -n ${TMUX:-} ]]; then
+    detail=' (via tmux)'
+  fi
   warn "using $method$detail"
 fi
 

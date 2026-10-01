@@ -44,8 +44,8 @@ cd sendcb
 | --- | --- |
 | Requirements | Checks for `base64`, `tr`, `fold`, `cat` and `uname` (all in coreutils) |
 | Install | Copies `sendcb` to `~/bin` |
-| PATH | If `~/bin` isn't on `PATH`, adds it in `~/.bashrc` or `~/.zshrc` |
-| tmux | Adds `set -g set-clipboard on` to `~/.tmux.conf` and applies it to a running tmux server. If you've already set it to another value, it warns instead of changing it. It also warns about tmux older than 3.3, and if run inside tmux, checks that tmux knows your terminal can set the clipboard |
+| PATH | If `~/bin` isn't on `PATH`, adds it at the top of `~/.bashrc` (before any early return for non-interactive shells), or to `~/.zshenv` for zsh |
+| tmux | Adds `set -g set-clipboard on` to `~/.tmux.conf` (or `~/.config/tmux/tmux.conf` if that's the only one you have) and applies it to a running tmux server. If you've already set it to another value, it warns instead of changing it. It also warns about tmux older than 3.3, and if run inside tmux, checks that tmux knows your terminal can set the clipboard |
 | screen, mosh | Reports on them. screen needs no configuration. mosh needs 1.4.0 or later |
 | Desktop tools | Reports whether `wl-copy`, `xclip` or `xsel` is available for use at the machine's own desktop |
 
@@ -137,7 +137,8 @@ printf '\e]52;c;%s\a' "$(printf 'hello' | base64 | tr -d '\n')"
 
 ### tmux
 
-`setup.sh` adds this to `~/.tmux.conf`:
+`setup.sh` adds this to `~/.tmux.conf`, or to `~/.config/tmux/tmux.conf` if
+that's the only one you have:
 
 ```sh
 set -g set-clipboard on
@@ -284,7 +285,7 @@ terminal](#your-terminal)), then inside tmux or screen.
 | Nothing over mosh | mosh older than 1.4.0 | Upgrade both ends |
 | Short text arrives, long text doesn't | Size limits; tmux older than 3.3 | `ssh host 'cmd' \| pbcopy` from your machine; upgrade tmux |
 | `sendcb: no terminal to send OSC 52 to` | Not running in an interactive terminal | Run it from your own machine: `ssh host 'cmd' \| pbcopy` |
-| `sendcb: command not found` | `~/bin` not on `PATH` yet | Open a new shell, or `source ~/.bashrc` |
+| `sendcb: command not found` | `~/bin` not on `PATH` yet | Open a new shell, or `source ~/.bashrc` (zsh: `~/.zshenv`) |
 | `"+p` in Neovim hangs or pastes nothing | Terminal refuses clipboard reads | Cmd-V, or the paste fallback in the [Neovim config](#neovim) |
 
 ---
@@ -440,7 +441,8 @@ café Wi-Fi, can write to your clipboard too.
 
 ```sh
 rm ~/bin/sendcb
-grep -n 'added by sendcb setup.sh' ~/.bashrc ~/.zshrc ~/.tmux.conf 2> /dev/null
+grep -n 'added by sendcb setup.sh' ~/.bashrc ~/.zshenv ~/.tmux.conf \
+  "${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf" 2> /dev/null
 ```
 
 Each marker comment is followed by the one line that was added. Delete both

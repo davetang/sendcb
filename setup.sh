@@ -8,7 +8,8 @@
 # already set up. Lines it adds to your config files are marked with a comment.
 set -euo pipefail
 
-repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# cd prints the directory when $CDPATH finds it, so discard its output
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" > /dev/null && pwd)
 bin_dir=$HOME/bin
 marker='# added by sendcb setup.sh'
 
@@ -46,9 +47,11 @@ case ":$PATH:" in
     fi
     ;;
   *)
+    # pick files that non-interactive shells read too, so that commands like
+    # `ssh -t host 'cmd | sendcb'` find sendcb
     case $(basename "${SHELL:-}") in
       bash) rc=$HOME/.bashrc ;;
-      zsh)  rc=${ZDOTDIR:-$HOME}/.zshrc ;;
+      zsh)  rc=$HOME/.zshenv ;;   # read by every zsh; .zshrc is interactive only
       *)    rc= ;;
     esac
     line='export PATH="$HOME/bin:$PATH"'
@@ -57,8 +60,12 @@ case ":$PATH:" in
     elif grep -qsF "$line" "$rc"; then
       ok "$rc already adds ~/bin to PATH (open a new shell to pick it up)"
     else
-      printf '\n%s\n%s\n' "$marker" "$line" >> "$rc"
-      did "~/bin to PATH in $rc (open a new shell, or run: source $rc)"
+      # add it at the top: many ~/.bashrc files, such as Debian's and
+      # Ubuntu's, return early in non-interactive shells. The x stops $(...)
+      # from removing the file's trailing newlines
+      content=$(cat "$rc" 2> /dev/null; printf x)
+      printf '%s\n%s\n\n%s' "$marker" "$line" "${content%x}" > "$rc"
+      did "~/bin to PATH at the top of $rc (open a new shell, or run: source $rc)"
     fi
     ;;
 esac
