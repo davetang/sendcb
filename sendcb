@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# sendcb: send text to the clipboard of the machine you are sitting at.
+#
+#   over SSH        -> OSC 52 escape sequence, picked up by your local terminal
+#   macOS           -> pbcopy
+#   Linux desktop   -> wl-copy (Wayland), xclip or xsel (X11)
+#   anything else   -> OSC 52
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: sendcb [-n] [-o] [-v] [FILE...]
+
+Copy FILEs, or standard input, to your clipboard. Over SSH the text is sent
+to your local terminal as an OSC 52 escape sequence.
+
+  -n   remove trailing newlines
+  -o   always use OSC 52 (e.g. in a screen or tmux session that was started
+       at the desktop and reattached over SSH)
+  -v   print the method used
+  -h   show this help
+
+Examples:
+  git rev-parse HEAD | sendcb
+  sendcb ~/.ssh/id_ed25519.pub
+  pwd | sendcb -n
+EOF
+}
+
+# tmux discards escape sequences over 1 MiB, and some terminals cap them lower
+readonly osc52_limit=1000000
+
+warn() { echo "sendcb: $*" >&2; }
+
+# read FILEs (or stdin), optionally dropping trailing newlines
+input() {
+  if $strip; then
+    printf '%s' "$(cat -- "$@")"
+  else
+    cat -- "$@"
+  fi
+}
+
+# encode stdin as an OSC 52 "set clipboard" sequence
+osc52() {
+  local data chunk
+  data=$(base64 | tr -d '\n')
+  if (( ${#data} > osc52_limit )); then
+    warn "${#data} bytes after encoding; tmux and some terminals drop OSC 52 sequences this large"
+  fi
+  if [[ -n ${STY:-} ]]; then
+    # GNU screen drops OSC 52 and truncates long escape strings, so split the
+    # sequence into 76-character pieces, each wrapped in a DCS (ESC P ... ESC \)
+    # that screen passes to the outer terminal untouched
+    printf '\eP\e]52;c;\e\\'
+    while IFS= read -r chunk; do
+      printf '\eP%s\e\\' "$chunk"
+    done < <(fold -w 76 <<< "$data")
+    printf '\eP\a\e\\'
+  else
+    # plain terminal, or tmux with `set -g set-clipboard on`
+    printf '\e]52;c;%s\a' "$data"
+  fi
+}
+
+strip=false
+force_osc52=false
+verbose=false
+while getopts ':novh' opt; do
+  case $opt in
+    n) strip=true ;;
+    o) force_osc52=true ;;
+    v) verbose=true ;;
+    h) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if (( $# == 0 )) && [[ -t 0 ]]; then
+  warn "nothing to copy: pipe text in or name a file"
+  usage >&2
+  exit 2
+fi
+
+if $force_osc52 || [[ -n ${SSH_CONNECTION:-} ]]; then
+  method=osc52
+elif [[ $(uname -s) == Darwin ]]; then
+  method=pbcopy
+elif [[ -n ${WAYLAND_DISPLAY:-} ]] && command -v wl-copy > /dev/null; then
+  method=wl-copy
+elif [[ -n ${DISPLAY:-} ]] && command -v xclip > /dev/null; then
+  method=xclip
+elif [[ -n ${DISPLAY:-} ]] && command -v xsel > /dev/null; then
+  method=xsel
+else
+  method=osc52
+fi
+
+if [[ $method == osc52 ]]; then
+  if ! { : > /dev/tty; } 2> /dev/null; then
+    warn "no terminal to send OSC 52 to; run sendcb in an interactive session"
+    exit 1
+  fi
+  if [[ -n ${TMUX:-} ]] && [[ $(tmux show -gv set-clipboard 2> /dev/null) != on ]]; then
+    warn "tmux will drop the text: run 'tmux set -g set-clipboard on' (and add it to ~/.tmux.conf)"
+  fi
+fi
+
+if $verbose; then
+  detail=
+  [[ $method == osc52 && -n ${STY:-} ]] && detail=' (wrapped for GNU screen)'
+  [[ $method == osc52 && -n ${TMUX:-} ]] && detail=' (via tmux)'
+  warn "using $method$detail"
+fi
+
+case $method in
+  osc52)   input "$@" | osc52 > /dev/tty ;;
+  pbcopy)  input "$@" | pbcopy ;;
+  wl-copy) input "$@" | wl-copy ;;
+  # xclip and xsel stay in the background to serve the clipboard; redirect
+  # stdout so they don't hold it open and hang $(...) or ssh
+  xclip)   input "$@" | xclip -selection clipboard > /dev/null ;;
+  xsel)    input "$@" | xsel --clipboard --input > /dev/null ;;
+esac
