@@ -413,13 +413,13 @@ A DIY version of tools like lemonade and clipper. On your Mac, run a listener
 that copies whatever it receives:
 
 ```sh
-while true; do nc -l 2224 | pbcopy; done
+while true; do nc -l 127.0.0.1 2224 | pbcopy; done
 ```
 
 Connect with a reverse forward, so port 2224 on the remote machine leads back:
 
 ```sh
-ssh -R 2224:localhost:2224 host
+ssh -R 2224:127.0.0.1:2224 host
 ```
 
 On the remote machine:
@@ -430,7 +430,9 @@ some_command | nc -N localhost 2224    # Debian's netcat-openbsd; other nc versi
 
 **Caution:** anyone else logged into the remote machine can connect to that
 port and write to your clipboard. Only use this on a machine you have to
-yourself.
+yourself. Keep the `127.0.0.1` in the listener: without it, `nc -l` listens on
+every network interface, and anyone on the same network as your Mac, such as
+café Wi-Fi, can write to your clipboard too.
 
 ---
 
