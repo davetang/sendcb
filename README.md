@@ -122,7 +122,7 @@ The terminal on the machine you're sitting at must accept OSC 52:
 | Alacritty | On (`terminal.osc52 = "OnlyCopy"`) | Nothing |
 | Windows Terminal | On | Nothing |
 | Apple Terminal.app | Not supported in the past | Use iTerm2 or Ghostty for SSH sessions |
-| GNOME Terminal and other VTE terminals | Not supported | Use a different terminal for SSH sessions |
+| GNOME Terminal and other VTE terminals | Not supported | Use a different terminal for SSH sessions, such as kitty (see [After switching terminal](#after-switching-terminal)) |
 
 To test the terminal on its own, run this on the remote machine **outside**
 tmux and screen, then paste locally:
@@ -130,6 +130,49 @@ tmux and screen, then paste locally:
 ```sh
 printf '\e]52;c;%s\a' "$(printf 'hello' | base64 | tr -d '\n')"
 ```
+
+### After switching terminal
+
+Each terminal has a terminal type, which SSH passes to the remote machine as
+`$TERM`: kitty's is `xterm-kitty`, Ghostty's `xterm-ghostty`. Programs there
+look the type up in the terminfo database, and many machines lack these newer
+entries. Then:
+
+- screen won't attach: `Cannot find terminfo entry for 'xterm-kitty'.`
+- zsh can't edit the command line: Backspace prints a space instead of
+  deleting. bash copes.
+
+Copy the entry over, once per remote machine. Run this from your own machine,
+in the new terminal. It needs no root on the remote machine:
+
+```sh
+infocmp -a xterm-kitty | ssh host tic -x -o \~/.terminfo /dev/stdin
+```
+
+`tic` may warn `older tic versions may treat the description field as an
+alias`. That's harmless: the entry is installed anyway. Check with
+`ssh host infocmp xterm-kitty | head -n 2`, then open a new SSH session.
+
+Other ways to do it:
+
+| Way | Notes |
+| --- | --- |
+| `kitten ssh host` instead of `ssh host` | kitty only. Copies the entry on every connection |
+| `sudo apt install kitty-terminfo` on the remote machine | Debian and Ubuntu. Installs it for every user |
+| `SetEnv TERM=xterm-256color` for the host in `~/.ssh/config` | OpenSSH 8.7+. Everything works, but programs treat the terminal as a plain xterm |
+
+**Programs built against conda's ncurses**, such as a screen compiled against
+Miniforge, may look in a different directory. Miniforge's current ncurses (6.6)
+names each directory after the hex code of the first letter, so it wants
+`~/.terminfo/78/xterm-kitty`, while the system's `tic` writes
+`~/.terminfo/x/xterm-kitty`. The shell then finds the entry, but screen still
+can't. Link the file into the other directory too:
+
+```sh
+ssh host 'mkdir -p ~/.terminfo/78 && ln -sf ../x/xterm-kitty ~/.terminfo/78/xterm-kitty'
+```
+
+Ghostty's `xterm-ghostty` goes in the same two directories.
 
 ---
 
@@ -287,6 +330,7 @@ terminal](#your-terminal)), then inside tmux or screen.
 | `sendcb: no terminal to send OSC 52 to` | Not running in an interactive terminal | Run it from your own machine: `ssh host 'cmd' \| pbcopy` |
 | `sendcb: command not found` | `~/bin` not on `PATH` yet | Open a new shell, or `source ~/.bashrc` (zsh: `~/.zshenv`) |
 | `"+p` in Neovim hangs or pastes nothing | Terminal refuses clipboard reads | Cmd-V, or the paste fallback in the [Neovim config](#neovim) |
+| After switching terminal: screen says `Cannot find terminfo entry for 'xterm-kitty'`, or Backspace prints spaces in zsh | The remote machine doesn't know the new terminal's type | See [After switching terminal](#after-switching-terminal) |
 
 ---
 
@@ -471,6 +515,12 @@ with the input:
 duplicate lines, bash and zsh, an existing `set-clipboard external`, tmux 3.1
 and 3.7, and run inside tmux with a terminal tmux does and doesn't know can set
 the clipboard.
+
+The steps under [After switching terminal](#after-switching-terminal) were
+checked by reproducing both symptoms without the kitty entry, then fixing them.
+That was done with screen and zsh, against ncurses 6.4 from Debian and 6.2 and
+6.6 from conda-forge, and confirmed with kitty against a server running a
+screen 5 built against Miniforge.
 
 ---
 
